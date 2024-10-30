@@ -1,0 +1,113 @@
+<!-- templates/index.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>InfraPilot</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.43.0/min/vs/loader.js"></script>
+</head>
+<body class="bg-gray-100">
+    <div class="container mx-auto px-4 py-8">
+        <h1 class="text-4xl font-bold text-gray-800 mb-8">InfraPilot</h1>
+        
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+            <!-- Command Input Section -->
+            <div class="bg-white rounded-lg shadow-md p-6">
+                <h2 class="text-xl font-semibold mb-4">Enter Command</h2>
+                <div class="mb-4">
+                    <textarea 
+                        id="commandInput" 
+                        class="w-full h-32 p-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        placeholder="Enter your DevOps command (e.g., 'list all containers' or 'run container image nginx with port 80:80')"
+                    ></textarea>
+                </div>
+                <button 
+                    onclick="executeCommand()"
+                    class="bg-blue-500 text-white px-6 py-2 rounded-lg hover:bg-blue-600 transition-colors"
+                >
+                    Execute
+                </button>
+            </div>
+
+            <!-- Results Section -->
+            <div class="bg-white rounded-lg shadow-md p-6">
+                <h2 class="text-xl font-semibold mb-4">Results</h2>
+                <div id="resultsContainer" class="space-y-4">
+                    <div id="intentSection" class="hidden">
+                        <h3 class="font-medium text-gray-700">Detected Intent:</h3>
+                        <p id="intentText" class="text-gray-600"></p>
+                    </div>
+                    <div id="entitiesSection" class="hidden">
+                        <h3 class="font-medium text-gray-700">Extracted Entities:</h3>
+                        <pre id="entitiesText" class="bg-gray-50 p-3 rounded-lg text-sm"></pre>
+                    </div>
+                    <div id="resultSection" class="hidden">
+                        <h3 class="font-medium text-gray-700">Execution Result:</h3>
+                        <pre id="resultText" class="bg-gray-50 p-3 rounded-lg text-sm"></pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Command History -->
+        <div class="mt-8 bg-white rounded-lg shadow-md p-6">
+            <h2 class="text-xl font-semibold mb-4">Command History</h2>
+            <div id="historyContainer" class="space-y-2">
+                <!-- History items will be added here -->
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function executeCommand() {
+            const command = document.getElementById('commandInput').value;
+            
+            // Show loading state
+            document.getElementById('intentSection').classList.add('hidden');
+            document.getElementById('entitiesSection').classList.add('hidden');
+            document.getElementById('resultSection').classList.add('hidden');
+            
+            fetch('/analyze', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ command }),
+            })
+            .then(response => response.json())
+            .then(data => {
+                // Display results
+                document.getElementById('intentSection').classList.remove('hidden');
+                document.getElementById('entitiesSection').classList.remove('hidden');
+                document.getElementById('resultSection').classList.remove('hidden');
+
+                document.getElementById('intentText').textContent = data.intent;
+                document.getElementById('entitiesText').textContent = JSON.stringify(data.entities, null, 2);
+                document.getElementById('resultText').textContent = JSON.stringify(data.result, null, 2);
+
+                // Add to history
+                addToHistory(command, data);
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('An error occurred while processing your command.');
+            });
+        }
+
+        function addToHistory(command, result) {
+            const historyItem = document.createElement('div');
+            historyItem.className = 'p-3 bg-gray-50 rounded-lg';
+            historyItem.innerHTML = `
+                <p class="font-medium">${command}</p>
+                <p class="text-sm text-gray-600">Intent: ${result.intent}</p>
+                <p class="text-sm text-gray-600">Status: ${result.result.status}</p>
+            `;
+            
+            const historyContainer = document.getElementById('historyContainer');
+            historyContainer.insertBefore(historyItem, historyContainer.firstChild);
+        }
+    </script>
+</body>
+</html>
