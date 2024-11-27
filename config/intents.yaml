@@ -1,0 +1,162 @@
+# Configuration for DevOps intents and their required parameters
+DEPLOY_EC2:
+  required_slots:
+    instance_name:
+      description: "Enter the name for your EC2 instance"
+      type: "string"
+      validation: "^[a-zA-Z0-9-]+$"
+    instance_type:
+      description: "Enter the EC2 instance type (e.g., t2.micro, t3.small)"
+      type: "string"
+      validation: "^[a-z][0-9]\\.[a-zA-Z]+$"
+    ami_id:
+      description: "Enter the AMI ID (leave blank for default Amazon Linux 2)"
+      type: "string"
+      optional: true
+  templates:
+    infrastructure: |
+      provider "aws" {{
+        region = "us-east-1"
+      }}
+
+      variable "instance_name" {{
+        description = "Name of the EC2 instance"
+        default     = "{instance_name}"
+      }}
+
+      variable "instance_type" {{
+        description = "EC2 instance type"
+        default     = "{instance_type}"
+      }}
+
+      variable "ami_id" {{
+        description = "AMI ID for the EC2 instance"
+        default     = "{ami_id}"
+      }}
+
+      resource "aws_instance" "app_server" {{
+        ami           = var.ami_id
+        instance_type = var.instance_type
+        
+        tags = {{
+          Name = var.instance_name
+        }}
+
+        lifecycle {{
+          ignore_changes = [ami]
+        }}
+      }}
+
+      output "public_ip" {{
+        value = aws_instance.app_server.public_ip
+      }}
+
+DEPLOY_K8S:
+  required_slots:
+    cluster_name:
+      description: "Enter the name for your Kubernetes cluster"
+      type: "string"
+      validation: "^[a-zA-Z0-9-]+$"
+    node_count:
+      description: "Enter the number of worker nodes"
+      type: "integer"
+      validation: "^[1-9][0-9]*$"
+    region:
+      description: "Enter the AWS region for deployment"
+      type: "string"
+      validation: "^[a-z]{2}-[a-z]+-[1-9][0-9]*$"
+  templates:
+    infrastructure: |
+      provider "aws" {{
+        region = "{region}"
+      }}
+
+      module "eks" {{
+        source          = "terraform-aws-modules/eks/aws"
+        cluster_name    = "{cluster_name}"
+        cluster_version = "1.27"
+        subnet_ids      = module.vpc.private_subnets
+        vpc_id         = module.vpc.vpc_id
+
+        eks_managed_node_group_defaults = {{
+          instance_types = ["t3.medium"]
+        }}
+
+        eks_managed_node_groups = {{
+          initial = {{
+            desired_size = "{node_count}"
+            min_size     = 1
+            max_size     = "{node_count}" * 2
+          }}
+        }}
+      }}
+
+SETUP_CICD:
+  required_slots:
+    repository_url:
+      description: "Enter your Git repository URL"
+      type: "string"
+      validation: "^https?://.*$"
+    build_commands:
+      description: "Enter the build commands (comma-separated)"
+      type: "string"
+    deploy_environment:
+      description: "Enter the deployment environment (dev/staging/prod)"
+      type: "string"
+      validation: "^(dev|staging|prod)$"
+  templates:
+    infrastructure: |
+      # GitHub Actions workflow configuration
+      name: CI/CD Pipeline
+
+      on:
+        push:
+          branches: [ main ]
+        pull_request:
+          branches: [ main ]
+
+      jobs:
+        build:
+          runs-on: ubuntu-latest
+          steps:
+          - uses: actions/checkout@v2
+          
+          - name: Build
+            run: |
+              {build_commands}
+          
+          - name: Deploy to {deploy_environment}
+            if: github.ref == 'refs/heads/main'
+            run: |
+              echo "Deploying to {deploy_environment}"
+
+CONFIGURE_MONITORING:
+  required_slots:
+    monitoring_stack:
+      description: "Enter monitoring stack (prometheus/grafana/cloudwatch)"
+      type: "string"
+      validation: "^(prometheus|grafana|cloudwatch)$"
+    metrics_retention:
+      description: "Enter metrics retention period in days"
+      type: "integer"
+    alert_email:
+      description: "Enter email for alerts"
+      type: "string"
+      validation: "^[^@]+@[^@]+\\.[^@]+$"
+
+SCALE_INFRASTRUCTURE:
+  required_slots:
+    resource_type:
+      description: "Enter resource type to scale (ec2/eks/rds)"
+      type: "string"
+      validation: "^(ec2|eks|rds)$"
+    min_capacity:
+      description: "Enter minimum capacity"
+      type: "integer"
+    max_capacity:
+      description: "Enter maximum capacity"
+      type: "integer"
+    scaling_metric:
+      description: "Enter scaling metric (cpu/memory/custom)"
+      type: "string"
+      validation: "^(cpu|memory|custom)$"
