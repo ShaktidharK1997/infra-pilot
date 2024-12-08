@@ -1,3 +1,5 @@
+other_infra_fe/
+infrapilot_fe/build/
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
