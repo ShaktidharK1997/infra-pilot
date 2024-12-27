@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from "react-oidc-context";
-import { MessageCircle, Send, LogOut } from 'lucide-react';
+import { MessageCircle, Send, LogOut, Trash2 } from 'lucide-react';
+import NotificationComponent from './components/ui/notification_component';
+import { v4 as uuidv4 } from 'uuid';
 
 function App() {
   const auth = useAuth();
@@ -9,78 +11,111 @@ function App() {
   const [apiClient, setApiClient] = useState(null);
   const messagesEndRef = useRef(null);
   const [loading, setLoading] = useState(false);
+  const [sessionId, setSessionId] = useState(uuidv4());
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
-
+  
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
 
-  const signOutRedirect = () => {
-    const clientId = "4jk1ku62b3i9veegqirlptjusf";
-    const logoutUri = "https://infrapilot-fe.s3-website-us-east-1.amazonaws.com";
-    const cognitoDomain = "https://us-east-1pk76jhr5v.auth.us-east-1.amazoncognito.com";
-    window.location.href = `${cognitoDomain}/logout?client_id=${clientId}&logout_uri=${encodeURIComponent(logoutUri)}`;
+  const clearChat = () => {
+    setMessages([]);
+    setSessionId(uuidv4());
   };
 
+  const formatMessageText = (text) => {
+    return text
+      .split(/(?:\r\n|\r|\n|<br>)/g) 
+      .map((line, i) => (
+        <React.Fragment key={i}>
+          {line}
+          {i !== text.split(/(?:\r\n|\r|\n|<br>)/g).length - 1 && <br />}
+        </React.Fragment>
+      ));
+  };
 
+  const signOutRedirect = async () => {
+    const clientId = "4jk1ku62b3i9veegqirlptjusf";
+    const logoutUri = window.origin;
+    const cognitoDomain = "https://us-east-1pk76jhr5v.auth.us-east-1.amazoncognito.com";
+    
+    try {
+      // First clear the local auth state
+      await auth.removeUser();
+      // Then redirect to Cognito logout
+      window.location.href = `${cognitoDomain}/logout?client_id=${clientId}&logout_uri=${encodeURIComponent(logoutUri)}`;
+    } catch (error) {
+      console.error('Logout error:', error);
+      // Fallback to direct redirect if removeUser fails
+      window.location.href = `${cognitoDomain}/logout?client_id=${clientId}&logout_uri=${encodeURIComponent(logoutUri)}`;
+    }
+  };
 
   useEffect(() => {
-    if (auth.isAuthenticated && window.apigClientFactory) {
-      const client = window.apigClientFactory.newClient({
-        region: 'us-east-1'
-      });
-      setApiClient(client);
+    if (auth.error?.message === "No matching state found in storage") {
+      const userDataKey = `oidc.user:https://cognito-idp.us-east-1.amazonaws.com/us-east-1_pk76Jhr5v:4jk1ku62b3i9veegqirlptjusf`;
+      const userData = localStorage.getItem(userDataKey);
+      
+      if (userData) {
+        try {
+          const parsedData = JSON.parse(userData);
+          if (parsedData.expires_at && parsedData.expires_at > Date.now() / 1000) {
+            // If we have valid tokens, just reload the page to clear the error
+            window.location.href = window.origin;
+          }
+        } catch (e) {
+          console.error('Error handling auth error:', e);
+        }
+      }
     }
-  }, [auth.isAuthenticated]);
+  }, [auth.error]);
 
   const formatTime = () => {
     const now = new Date();
     return `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
   };
 
+  useEffect(() => {
+    if (auth.isAuthenticated && window.apigClientFactory) {
+      const client = window.apigClientFactory.newClient({
+        region: 'us-east-1',
+        defaultContentType: 'application/json',
+        defaultAcceptType: 'application/json'
+      });
+      setApiClient(client);
+    }
+  }, [auth.isAuthenticated]);
+  
   const sendMessage = async () => {
     if (!input.trim() || !apiClient) return;
-
-    const userMessage = {
-      text: input,
-      sender: 'user',
-      time: formatTime()
-    };
-
+    const userMessage = { text: input, sender: 'user', time: formatTime() };
     setMessages(prev => [...prev, userMessage]);
     setInput('');
     setLoading(true);
-
     try {
       const response = await apiClient.chatPost({}, 
-        { message: input },
-        { headers: { 
-          'Authorization': auth.user?.id_token,
-          'Content-Type': 'application/json'
-        }}
+        { message: input, session_id: sessionId },
+        { 
+          headers: { 
+            'Authorization': auth.user?.id_token,
+            'Content-Type': 'application/json'
+          }
+        }
       );
-      
       if (response.data) {
-        setMessages(prev => [...prev, {
-          text: response.data.response,
-          sender: 'bot',
-          time: formatTime()
-        }]);
+        setMessages(prev => [...prev, { text: response.data.response, sender: 'bot', time: formatTime() }]);
       }
     } catch (err) {
       console.error('Error:', err);
-      setMessages(prev => [...prev, {
-        text: "Sorry, I encountered an error. Please try again.",
-        sender: 'bot',
-        time: formatTime()
-      }]);
+      setMessages(prev => [...prev, { text: "Sorry, I encountered an error. Please try again.", sender: 'bot', time: formatTime() }]);
     } finally {
       setLoading(false);
     }
   };
+  
 
   if (auth.isLoading) {
     return (
@@ -155,13 +190,23 @@ function App() {
           </div>
           <span className="text-gray-700 font-medium">{auth.user?.profile.email}</span>
         </div>
-        <button
-          onClick={() => signOutRedirect()}
-          className="flex items-center space-x-2 px-4 py-2 text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-lg transition-colors"
-        >
-          <LogOut className="w-5 h-5" />
-          <span>Sign out</span>
-        </button>
+        <div className="flex items-center space-x-4">
+          <button
+            onClick={clearChat}
+            className="flex items-center space-x-2 px-4 py-2 text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-lg transition-colors"
+          >
+            <Trash2 className="w-5 h-5" />
+            <span>Clear Chat</span>
+          </button>
+          <NotificationComponent apiClient={apiClient} auth={auth} />
+          <button
+            onClick={() => signOutRedirect()}
+            className="flex items-center space-x-2 px-4 py-2 text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-lg transition-colors"
+          >
+            <LogOut className="w-5 h-5" />
+            <span>Sign out</span>
+          </button>
+        </div>
       </div>
 
       <div className="flex-1 p-4 overflow-y-auto">
@@ -180,13 +225,13 @@ function App() {
               >
                 <div className="max-w-sm flex flex-col">
                   <div
-                    className={`p-4 rounded-2xl ${
+                    className={`p-4 rounded-2xl whitespace-pre-wrap ${
                       message.sender === 'user'
                         ? 'bg-blue-600 text-white rounded-br-none'
                         : 'bg-white text-gray-800 rounded-bl-none shadow-sm'
                     }`}
                   >
-                    {message.text}
+                    {formatMessageText(message.text)}
                   </div>
                   <span className={`text-xs mt-1 ${message.sender === 'user' ? 'text-right' : 'text-left'} text-gray-500`}>
                     {message.time}

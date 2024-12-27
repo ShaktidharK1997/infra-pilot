@@ -1,6 +1,6 @@
 import os
 import json
-from lambda_function import lambda_handler
+import lambda_handler
 from unittest.mock import MagicMock
 import boto3
 from dotenv import load_dotenv
